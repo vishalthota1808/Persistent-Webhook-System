@@ -1,0 +1,8 @@
+CREATE TABLE events(
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    type TEXT NOT NULL,
+    payload JSONB NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+)
