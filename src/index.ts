@@ -1,5 +1,7 @@
 import express from "express"
 import { pool } from "./db/pool.js"
+import { validate } from "./schemas/validate.js"
+import { endpointSchema } from "./schemas/endpoint.schema.js"
 // import {Request, Response} from "types/express"
 
 
@@ -49,6 +51,9 @@ app.post('/echo', (req, res) => {
     
     res.status(200).json({status: "success", body: data})
 })
+
+
+
 app.use(endpointHandler) //this middleware is encountered when the endpoint requested in not valid.
 app.use(errorHandler) //this should be declare this middleware at the end.
 
