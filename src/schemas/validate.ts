@@ -2,8 +2,8 @@ import {z} from "zod";
 import type { Request, Response, NextFunction } from "express";
 
 export function validate(schema: z.ZodType){
-    return (res: Response, req:Request, next: NextFunction) => {
-        const result = schema.safeParse(req);
+    return (req: Request, res: Response, next: NextFunction) => {
+        const result = schema.safeParse(req.body);
 
         if(!result.success){
             return next(result.error)
@@ -11,5 +11,4 @@ export function validate(schema: z.ZodType){
         next();
     }
 } 
-//this is a validate function which can be used for schema validation of the request. 
-//u can use this while accepting in endpoints. 
+//this is a outer function which accepts the schema and returns a middleware function[which accepts req, res, next]
