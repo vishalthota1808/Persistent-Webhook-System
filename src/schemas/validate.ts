@@ -19,6 +19,8 @@ export function validate(schema: z.ZodType, source: "body" | "query" | "params" 
             return next(result.error)
         }
         req.validatedData = result.data; //this is most important because this we cannot use parsed values like parsed string to number, and default values etc
+        console.log(req.query)
+        console.log(result.data)
         next();
     }
 } 

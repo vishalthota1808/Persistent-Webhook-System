@@ -6,9 +6,10 @@ import { eventSchema } from "./schemas/event.schema.js"
 import crypto from "crypto"
 import { connect } from "http2"
 import { eventQuerySchema } from "./schemas/eventQuery.schema.js"
-import { safeParse } from "zod"
+import { safeParse, validateAsync } from "zod"
 import { pathToFileURL } from "url"
 import { eventIdSchema } from "./schemas/eventId.schema.js"
+import { deliveriesSchema } from "./schemas/deliveries.schema.js"
 // import {Request, Response} from "types/express"
 
 
@@ -149,7 +150,7 @@ app.get('/events/:id', validate(eventIdSchema, "params"), async(req, res, next) 
                                             ON deliveries.event_id = events.id
                                         WHERE events.id = $1
                                         GROUP BY events.id;
-                                        `)
+                                        `, [params.id])
 
 // Basically, while using join in SQL queries, it will return multiple rows. So, in order to aggregate all those rows into one, we use json_agg function.
 // explaining the query: first selecting the required columns from events, json_build_object converts each row to object then json_agg converts them into an array, filtering  left join null values, used [] to return if no events exist
@@ -164,6 +165,23 @@ app.get('/events/:id', validate(eventIdSchema, "params"), async(req, res, next) 
     }
     
 })
+
+app.get('/deliveries', validate(deliveriesSchema, "query"), async(req, res, next) => {
+    const params = req.validatedData;
+    console.log(params)
+    console.log(req.query)
+    try{
+        const result = await pool.query(`SELECT * FROM deliveries WHERE ($1::TEXT IS NULL OR status = $1)
+            AND ($2::BIGINT IS NULL OR endpoint_id = $2)
+            AND ($3::BIGINT IS NULL OR event_id = $3) ORDER BY next_attempt_at DESC LIMIT $4`, [params.status, params.endpoint_id, params.event_id, params.limit]);
+        res.status(200).json({message: "success", data: result});
+    }
+    catch(err){
+        next(err);
+    } 
+
+    })
+
 
 app.use(endpointHandler) //this middleware is encountered when the endpoint requested in not valid.
 app.use(errorHandler) //this should be declare this middleware at the end.
