@@ -5,6 +5,10 @@ import { endpointSchema } from "./schemas/endpoint.schema.js"
 import { eventSchema } from "./schemas/event.schema.js"
 import crypto from "crypto"
 import { connect } from "http2"
+import { eventQuerySchema } from "./schemas/eventQuery.schema.js"
+import { safeParse } from "zod"
+import { pathToFileURL } from "url"
+import { eventIdSchema } from "./schemas/eventId.schema.js"
 // import {Request, Response} from "types/express"
 
 
@@ -58,7 +62,7 @@ app.post('/echo', (req, res) => {
 //NOTE: Here the parameter in the midlle of path and function, i.e validate is a route specific middleware.
 
 app.post('/endpoints', validate(endpointSchema), async(req, res, next) => {
-    const url:String = req.body.url;
+    const url:string = req.body.url;
     const secret: string = "whsec_" + crypto.randomBytes(24).toString("base64");
     // const new_endpoint = {url: url, secret:secret};
     try{
@@ -68,7 +72,7 @@ app.post('/endpoints', validate(endpointSchema), async(req, res, next) => {
         );
     }
     catch(err){
-        return next(err);
+        return next(err); //handling the errors with middlware supporst
     }
 
     res.status(201).json({message: "created", secret: secret});
@@ -106,6 +110,59 @@ app.post('/events', validate(eventSchema), async(req, res, next) => {
 
 
 
+})
+
+app.get('/events', validate(eventQuerySchema, "query"), async(req, res, next) => { //get events endpoint with proper filtering
+    const params = req.validatedData;
+    try{
+        const data = await pool.query("SELECT * FROM events WHERE ($1::TEXT IS NULL OR type = $1) ORDER BY created_at DESC LIMIT $2", [params.type, params.limit]);
+        //this is a conditional query statement...., where ::TEXT is explicit typecasting because for null value it may not determine the data type
+        res.status(200).json({message: "success", data:data});
+    }
+    catch(err){
+        next(err);
+    }
+    
+})
+
+app.get('/events/:id', validate(eventIdSchema, "params"), async(req, res, next) => {
+    const params = req.validatedData;
+    try{
+        const result = await pool.query(`SELECT
+                                            events.id,
+                                            events.type,
+                                            events.payload,
+                                            events.created_at,
+                                            COALESCE(
+                                                json_agg(
+                                                    json_build_object(
+                                                        'id', deliveries.id,
+                                                        'status', deliveries.status,
+                                                        'endpoint_id', deliveries.endpoint_id,
+                                                        'next_attempt_at', deliveries.next_attempt_at
+                                                    )
+                                                ) FILTER (WHERE deliveries.id IS NOT NULL),
+                                                '[]'::json
+                                            ) AS deliveries
+                                        FROM events
+                                        LEFT JOIN deliveries
+                                            ON deliveries.event_id = events.id
+                                        WHERE events.id = $1
+                                        GROUP BY events.id;
+                                        `)
+
+// Basically, while using join in SQL queries, it will return multiple rows. So, in order to aggregate all those rows into one, we use json_agg function.
+// explaining the query: first selecting the required columns from events, json_build_object converts each row to object then json_agg converts them into an array, filtering  left join null values, used [] to return if no events exist
+        if(!result.rows[0]){
+            res.status(404).json({message:"not found"});
+            return;
+        }
+        res.status(200).json({message: "success", data: result.rows[0]})
+    }
+    catch(err){
+        next(err)
+    }
+    
 })
 
 app.use(endpointHandler) //this middleware is encountered when the endpoint requested in not valid.
