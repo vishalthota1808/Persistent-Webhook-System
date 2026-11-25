@@ -6,15 +6,17 @@ INSERT INTO deliveries (
     next_attempt_at
 )
 SELECT
-    (ARRAY[1, 2, 6, 40, 41, 42])[floor(random() * 6 + 1)::int],
-    floor(random() * 4 + 1)::int,
+    e.id,
+    ep.id,
     0,
     CASE
         WHEN random() < 0.99 THEN 'delivered'
         ELSE 'pending'
     END,
     NOW() - (random() * INTERVAL '7 days')
-FROM generate_series(1, 200000);
+FROM generate_series(1, 200000) AS g
+CROSS JOIN LATERAL (SELECT id FROM events ORDER BY random() LIMIT 1) AS e
+CROSS JOIN LATERAL (SELECT id FROM endpoints ORDER BY random() LIMIT 1) AS ep;
 
 -- this particular file is for adding some large number of deliveries, in order to test the indexing of the queries.
 

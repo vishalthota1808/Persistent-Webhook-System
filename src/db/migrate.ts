@@ -2,25 +2,33 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { pool } from "./pool.js";
 
-const migrationsDir = path.resolve("migrations");
 
-const files = await readdir(migrationsDir);;
+export async function runMigrations(){
+    const migrationsDir = path.resolve("migrations");
+    
+    const files = await readdir(migrationsDir);;
+    
+    
+    const migrationFiles = files.filter((file) => file.endsWith(".sql")).sort();
 
-
-const migrationFiles = files.filter((file) => file.endsWith(".sql")).sort();
-
-const result =await pool.query("SELECT filename FROM schema_migrations ORDER BY filename");
-// console.log("result.rows", result.rows);
-
-const appliedMigrations = result.rows.map((row) => row.filename);
-
-const pendingMigrations = migrationFiles.filter(
-    (file) => !appliedMigrations.includes(file)
-);
-
-console.log("Pending migrations:", pendingMigrations);
-
-async function runMigrations(){
+    await pool.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        filename TEXT NOT NULL UNIQUE,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+`   );
+    
+    const result =await pool.query("SELECT filename FROM schema_migrations ORDER BY filename");
+    // console.log("result.rows", result.rows);
+    
+    const appliedMigrations = result.rows.map((row) => row.filename);
+    
+    const pendingMigrations = migrationFiles.filter(
+        (file) => !appliedMigrations.includes(file)
+    );
+    
+    console.log("Pending migrations:", pendingMigrations);
 
     for (const file of pendingMigrations) {
         const filePath = path.join(migrationsDir, file);
@@ -53,10 +61,12 @@ async function runMigrations(){
     }
 }
 
-runMigrations()
-    .catch((error) => {
-        console.error("Error running migrations:", error);
-    })
-    .finally(() => {
-        pool.end(); //close the pool after all migrations are done
-    });
+// runMigrations()
+//     .catch((error) => {
+//         console.error("Error running migrations:", error);
+//     })
+//     .finally(() => {
+//         pool.end(); //close the pool after all migrations are done
+//     });
+
+// yeah, we are actually making our existing migrate.ts file into reusable code so that our automated vitest can import it and use it.
