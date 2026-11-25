@@ -11,6 +11,7 @@ import { pathToFileURL } from "url";
 import { IdSchema } from "./schemas/Id.schema.js";
 import { deliveriesSchema } from "./schemas/deliveries.schema.js";
 // import {Request, Response} from "types/express"
+import {z} from "zod"
 
 export const app = express();
 app.use(requestLogger); //enables the express app to use this function as part of middleware pipeline
@@ -37,7 +38,15 @@ function errorHandler(
 ) {
   if (err.type === "entity.parse.failed") {
     res.status(400).json({ error: "Invalid json" });
-  } else {
+  
+  }
+  else if(err instanceof z.ZodError){
+    res.status(400).json({error: "Validation failed", details: err.issues})
+  }
+  else if(err.message == "Delivery not found"){
+    res.status(404).json({error: "Delivery not found", details: err})
+  }
+   else {
     console.log(err);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -195,7 +204,7 @@ app.get(
             AND ($3::BIGINT IS NULL OR event_id = $3) ORDER BY next_attempt_at DESC LIMIT $4`,
         [params.status, params.endpoint_id, params.event_id, params.limit],
       );
-      res.status(200).json({ message: "success", data: result });
+      res.status(200).json({ message: "success", data: result.rows });
     } catch (err) {
       next(err);
     }
@@ -238,7 +247,7 @@ app.get(
         return next(new Error("Delivery not found"));
       }
 
-      res.json(result.rows[0]);
+      res.json({message: "success" , data: result.rows[0]});
     } catch (err) {
       next(err);
     }
