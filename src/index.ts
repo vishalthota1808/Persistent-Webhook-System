@@ -8,7 +8,7 @@ import { connect } from "http2"
 import { eventQuerySchema } from "./schemas/eventQuery.schema.js"
 import { safeParse, validateAsync } from "zod"
 import { pathToFileURL } from "url"
-import { eventIdSchema } from "./schemas/eventId.schema.js"
+import { IdSchema } from "./schemas/Id.schema.js"
 import { deliveriesSchema } from "./schemas/deliveries.schema.js"
 // import {Request, Response} from "types/express"
 
@@ -126,7 +126,7 @@ app.get('/events', validate(eventQuerySchema, "query"), async(req, res, next) =>
     
 })
 
-app.get('/events/:id', validate(eventIdSchema, "params"), async(req, res, next) => {
+app.get('/events/:id', validate(IdSchema, "params"), async(req, res, next) => {
     const params = req.validatedData;
     try{
         const result = await pool.query(`SELECT
@@ -181,6 +181,46 @@ app.get('/deliveries', validate(deliveriesSchema, "query"), async(req, res, next
     } 
 
     })
+
+app.get('/deliveries/:id', validate(IdSchema, "params"), async (req, res, next) => {
+    try {
+        const { id } = req.validatedData;
+
+        const result = await pool.query(
+            `SELECT
+                deliveries.id,
+                deliveries.event_id,
+                deliveries.endpoint_id,
+                deliveries.status,
+                deliveries.next_attempt_at,
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'id', attempts.id,
+                            'delivery_id' , attempts.delivery_id,
+                            'response_status', attempts.response_status
+                        )
+                    ) FILTER (WHERE attempts.id IS NOT NULL),
+                    '[]'::json
+                ) AS attempts
+            FROM deliveries
+            LEFT JOIN attempts
+                ON attempts.delivery_id = deliveries.id
+            WHERE deliveries.id = $1
+            GROUP BY deliveries.id`,
+            [id]
+        );
+
+        if (result.rows.length === 0) {
+            return next(new Error("Delivery not found"));
+        }
+
+        res.json(result.rows[0]);
+
+    } catch (err) {
+        next(err);
+    }
+});
 
 
 app.use(endpointHandler) //this middleware is encountered when the endpoint requested in not valid.

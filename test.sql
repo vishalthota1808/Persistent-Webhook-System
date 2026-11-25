@@ -1,6 +1,7 @@
-SELECT
-    events.type,
-    deliveries.status
-FROM events
-LEFT JOIN deliveries
-    ON events.id = deliveries.event_id;
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT *
+FROM deliveries
+WHERE endpoint_id = 1
+  AND status = 'pending'
+ORDER BY next_attempt_at
+LIMIT 20;
