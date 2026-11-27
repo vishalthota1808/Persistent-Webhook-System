@@ -3,11 +3,16 @@ import process from "node:process";
 export const LEASE_SECONDS = Number(process.env.LEASE_SECONDS);
 export const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS);
 export const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS);
+export const RETRY_BASE_MS = Number(process.env.RETRY_BASE_MS);
+export const RETRY_CAP_MS = Number(process.env.RETRY_CAP_MS);
+
 
 const configValues = {
   LEASE_SECONDS,
   REQUEST_TIMEOUT_MS,
   POLL_INTERVAL_MS,
+  RETRY_BASE_MS,
+  RETRY_CAP_MS
 };
 
 for (const [key, value] of Object.entries(configValues)) {

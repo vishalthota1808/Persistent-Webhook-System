@@ -1,7 +1,7 @@
 //Here, a PostgreSQL database already has a row-lock mechanism in which one particular operation locks a particular row and can only release the lock after that particular transaction finishes. So, here in our project, if a worker A starts a transaction on a particular row, it locks the row and continues with its transaction. Whereas, at the same time, if worker B also tries to use the same particular row, then it waits for the worker A to complete its transaction. so, we use here SKIP LOCKED keyword, which enables worker B to directly skip it and move to other row.
 
 import { pool } from "./db/pool.js";
-import { LEASE_SECONDS , REQUEST_TIMEOUT_MS, POLL_INTERVAL_MS} from "./config/index.js";
+import { LEASE_SECONDS , REQUEST_TIMEOUT_MS, POLL_INTERVAL_MS, RETRY_BASE_MS, RETRY_CAP_MS} from "./config/index.js";
 import { date } from "zod";
 
 export async function claimDelivery() { //its func is just to claim a delivery not to send a http request..
@@ -51,7 +51,21 @@ export async function claimDelivery() { //its func is just to claim a delivery n
     }
 }
 
-export async function processDelivery(delivery : any) {
+export function computeRetryDelayMs( //this is a function to calculate the exponential jitter delay. baseMs is the base[coeffiecient] of the exponential function and capMs is the base of the exponent and the maximum allowed delay, attempt count is the power of the exponent.
+    attemptCount: number,
+    { baseMs, capMs }: { baseMs: number; capMs: number },
+    rng = Math.random
+): number {
+
+    const ceiling = Math.min(
+        capMs,
+        baseMs * Math.pow(2, attemptCount - 1)
+    );
+
+    return Math.floor(rng() * ceiling); //here rng is just a random value to provide jitter instead of direct exponential delays.
+}
+
+export async function processDelivery(delivery : any, attempt_count: number) {
     let elapsedTime: any = null;
     let response: any = null;
     let errorMessage: any = null;
@@ -107,7 +121,7 @@ export async function processDelivery(delivery : any) {
         }
         await pool.query(`UPDATE attempts SET duration_ms = $1,  response_status = $2, error = $3 WHERE id = $4`, [elapsedTime, response.status, null, attemptRecord.rows[0].id])
         // await pool.query(`UPDATE deliveries SET last_error = $1, status = $2, locked_until = $3, next_attempt_at = $4 WHERE id = $5`, [null, 'delivered', null, null, deliveryData.delivery_id])
-        await markDelivered(delivery.id, attemptRecord.id)
+        await markDelivered(delivery.id)
         console.log("Webhook delivered successfully:", delivery.id);
     }
     catch(err){
@@ -117,7 +131,14 @@ export async function processDelivery(delivery : any) {
         if (attemptRecord) {
             await pool.query(`UPDATE attempts SET duration_ms = $1,  response_status = $2, error = $3 WHERE id = $4`, [elapsedTime? elapsedTime:0, response?.status ?? null, failureReason, attemptRecord.rows[0].id])
         }
-        await markFailed(delivery.id, failureReason)
+        const delayMs = computeRetryDelayMs(
+            delivery.attempt_count,
+            {
+                baseMs: RETRY_BASE_MS,
+                capMs: RETRY_CAP_MS
+            }
+        );
+        await markFailed(delivery.id, failureReason, delayMs)
     }
 }
 
@@ -136,16 +157,16 @@ async function markDelivered(deliveryId : string){
     }
 }
 
-async function markFailed(deliveryId : string, errorMsg : string) {
+async function markFailed(deliveryId : string, errorMsg : string, delayMs: number) {
     const response = await pool.query(`
         UPDATE deliveries
         SET status = 'pending',
             locked_until = NULL,
-            next_attempt_at = now() + interval '5 seconds',
+            next_attempt_at = now() + ($3 * interval '1 millisecond'),
             last_error = $2
         WHERE id = $1
         AND status = 'in_flight';
-        `, [deliveryId, errorMsg])
+        `, [deliveryId, errorMsg, delayMs])
     
     if(response.rowCount == 0){
         throw new Error("Delivery is not in in_flight state.");
@@ -166,7 +187,7 @@ export async function startWorker(){
                 continue;
             }
             
-            await processDelivery(delivery);
+            await processDelivery(delivery, delivery.attempt_count);
         }
         catch(err){
             console.log("Worker iteration Failed!!")
