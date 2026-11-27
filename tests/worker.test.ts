@@ -144,6 +144,7 @@ describe("worker delivery" ,  () => {
             );
 
             expect(dbRow.rows[0].status).toBe("pending");
+            console.log("print")
             expect(dbRow.rows[0].locked_until).toBeNull();
 
             expect(new Date(dbRow.rows[0].next_attempt_at).getTime())

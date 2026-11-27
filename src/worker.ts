@@ -111,8 +111,13 @@ export async function processDelivery(delivery : any) {
         console.log("Webhook delivered successfully:", delivery.id);
     }
     catch(err){
-        await pool.query(`UPDATE attempts SET duration_ms = $1,  response_status = $2, error = $3 WHERE id = $4`, [elapsedTime, (response as any).status, errorMessage, (attemptRecord as any).rows[0].id])
-        await markFailed(delivery.id)
+        // when fetch throws (e.g. AbortSignal timeout / network error) there is no response object,
+        // so fall back to the error message and store a NULL response status.
+        const failureReason = errorMessage ?? (err instanceof Error ? err.message : String(err));
+        if (attemptRecord) {
+            await pool.query(`UPDATE attempts SET duration_ms = $1,  response_status = $2, error = $3 WHERE id = $4`, [elapsedTime? elapsedTime:0, response?.status ?? null, failureReason, attemptRecord.rows[0].id])
+        }
+        await markFailed(delivery.id, failureReason)
     }
 }
 
@@ -129,15 +134,16 @@ async function markDelivered(deliveryId : string){
     }
 }
 
-async function markFailed(deliveryId : string) {
+async function markFailed(deliveryId : string, errorMsg : string) {
     const response = await pool.query(`
         UPDATE deliveries
         SET status = 'pending',
             locked_until = NULL,
-            next_attempt_at = now() + interval '5 seconds'
+            next_attempt_at = now() + interval '5 seconds',
+            last_error = $2
         WHERE id = $1
         AND status = 'in_flight';
-        `, [deliveryId])
+        `, [deliveryId, errorMsg])
     
     if(response.rowCount == 0){
         throw new Error("Delivery is not in in_flight state.");
