@@ -267,6 +267,71 @@ describe("worker delivery" ,  () => {
                 expect(row.status).toBe("in_flight");
             }
     })
+
+
+    it("should record failed delivery attempt and last error", async () => {
+    receiverState.responseStatus = 500;
+
+    const endpoint = await request(app)
+        .post("/endpoints")
+        .send({
+            url: "http://localhost:4000/webhook"
+        });
+
+    expect(endpoint.status).toBe(201);
+
+    const event = await request(app)
+        .post("/events")
+        .send({
+            type: "user.created",
+            data: { name: "test" },
+            idempotency_key: "attempt-error-test"
+        });
+
+    expect(event.status).toBe(201);
+
+    const claimedDelivery = await claimDelivery();
+
+    expect(claimedDelivery).not.toBeNull();
+
+    await processDelivery(claimedDelivery);
+
+    // Verify attempt history
+    const attemptResult = await pool.query(
+        `SELECT *
+         FROM attempts
+         WHERE delivery_id = $1
+         ORDER BY id DESC
+         LIMIT 1`,
+        [claimedDelivery.id]
+    );
+
+    expect(attemptResult.rows).toHaveLength(1);
+
+    const attempt = attemptResult.rows[0];
+
+    expect(attempt.response_status).toBe(500);
+    expect(attempt.error).toContain("500");
+    expect(attempt.duration_ms).not.toBeNull();
+
+    // Verify delivery state and last_error
+    const deliveryResult = await pool.query(
+        `SELECT status, last_error, locked_until, next_attempt_at
+         FROM deliveries
+         WHERE id = $1`,
+        [claimedDelivery.id]
+    );
+
+    expect(deliveryResult.rows).toHaveLength(1);
+
+    const delivery = deliveryResult.rows[0];
+
+    expect(delivery.status).toBe("pending");
+    expect(delivery.last_error).toContain("500");
+    expect(delivery.locked_until).toBeNull();
+    expect(new Date(delivery.next_attempt_at).getTime())
+        .toBeGreaterThan(Date.now());
+});
     
     afterAll(async() => {
         if(receiverServer != null){

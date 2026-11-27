@@ -107,7 +107,7 @@ export async function processDelivery(delivery : any) {
         }
         await pool.query(`UPDATE attempts SET duration_ms = $1,  response_status = $2, error = $3 WHERE id = $4`, [elapsedTime, response.status, null, attemptRecord.rows[0].id])
         // await pool.query(`UPDATE deliveries SET last_error = $1, status = $2, locked_until = $3, next_attempt_at = $4 WHERE id = $5`, [null, 'delivered', null, null, deliveryData.delivery_id])
-        await markDelivered(delivery.id)
+        await markDelivered(delivery.id, attemptRecord.id)
         console.log("Webhook delivered successfully:", delivery.id);
     }
     catch(err){
@@ -125,10 +125,12 @@ async function markDelivered(deliveryId : string){
     const response  = await pool.query(`
             UPDATE deliveries
             SET status = 'delivered',
-                locked_until = NULL
+                locked_until = NULL,
+                last_error = NULL
             WHERE id = $1
             AND status = 'in_flight'
         `, [deliveryId]);
+
     if(response.rowCount == 0){
         throw new Error("Delivery is not in in_flight state.")
     }
