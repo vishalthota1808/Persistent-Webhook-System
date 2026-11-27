@@ -157,8 +157,10 @@ async function sleep(ms : number) {
 }
 export async function startWorker(){
     while(true){
+        // console.log("started..")
         try{
             const delivery = await claimDelivery();
+            console.log(`worker ${process.pid} has claimed the delivery ${delivery.id}`)
             if(!delivery){ //if no pending delivery
                 await sleep(POLL_INTERVAL_MS); //wait for a certian time.
                 continue;

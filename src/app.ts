@@ -83,16 +83,18 @@ app.post("/endpoints", validate(endpointSchema), async (req, res, next) => {
   const url: string = req.body.url;
   const secret: string = "whsec_" + crypto.randomBytes(24).toString("base64");
   // const new_endpoint = {url: url, secret:secret};
+  let endpointId: string;
   try {
-    await pool.query("INSERT INTO endpoints (url, secret) VALUES ($1, $2)", [
-      url,
-      secret,
-    ]);
+    const result = await pool.query(
+      "INSERT INTO endpoints (url, secret) VALUES ($1, $2) RETURNING id",
+      [url, secret],
+    );
+    endpointId = result.rows[0].id;
   } catch (err) {
     return next(err); //handling the errors with middlware supporst
   }
 
-  res.status(201).json({ message: "created", secret: secret });
+  res.status(201).json({ message: "created", id: endpointId, secret: secret });
 });
 
 app.post("/events", validate(eventSchema), async (req, res, next) => {
