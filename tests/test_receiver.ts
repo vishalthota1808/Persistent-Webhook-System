@@ -7,10 +7,12 @@ export const receiver = express();
 receiver.use(express.json());
 export const receiverState = {
     payload: null as any,
-    responseStatus: 200
+    responseStatus: 200,
+    delayMs: 0
 };
-receiver.post("/webhook", (req, res) => {
+receiver.post("/webhook", async (req, res) => {
   receiverState.payload = req.body;
+  await new Promise(resolve => setTimeout(resolve, receiverState.delayMs));
   console.log("Received webhook!");
   console.log("Headers:", req.headers);
   console.log("Body:", req.body);
