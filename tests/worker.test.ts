@@ -149,9 +149,123 @@ describe("worker delivery" ,  () => {
             expect(new Date(dbRow.rows[0].next_attempt_at).getTime())
                 .toBeGreaterThan(Date.now());
 
-        }, 15000)
+        }, 15000)// by default the vitest has a timeout of 5sec for each test, but our test primarily needs to wait for 10sec, so we can provide a thrid parameter here
 
+    it("No pending deliveries", async() => {
+        const endpoint = await request(app)
+            .post("/endpoints")
+            .send({
+                url: "http://localhost:4000/webhook"
+            });
 
+            expect(endpoint.status).toBe(201); 
+            const claimedDelivery = await claimDelivery();
+            expect(claimedDelivery).toBeNull();
+        })
+
+    it("should claim multiple pending deliveries without duplicates", async () => {
+
+    // Creating an endpoint
+    const endpoint = await request(app)
+        .post("/endpoints")
+        .send({
+            url: "http://localhost:4000/webhook"
+        });
+
+    expect(endpoint.status).toBe(201);
+
+    // Creating three events
+    for (let i = 1; i <= 3; i++) {
+        await request(app)
+            .post("/events")
+            .send({
+                type: "user.created",
+                data: { number: i },
+                idempotency_key: `multiple-delivery-${i}`
+            });
+    }
+
+    // Claim three deliveries
+    const delivery1 = await claimDelivery();
+    const delivery2 = await claimDelivery();
+    const delivery3 = await claimDelivery();
+
+    // Verify all three were claimed
+    expect(delivery1).not.toBeNull();
+    expect(delivery2).not.toBeNull();
+    expect(delivery3).not.toBeNull();
+
+    // Verify unique IDs
+    const ids = [
+        delivery1.id,
+        delivery2.id,
+        delivery3.id
+    ];
+
+    expect(new Set(ids).size).toBe(3); //expecting that all three workers claimed a unique delivery
+
+    // Verify all three are in_flight
+    const dbRows = await pool.query(
+        `SELECT id, status
+         FROM deliveries
+         WHERE id = ANY($1::int[])`,
+        [ids]
+    );
+
+    expect(dbRows.rows).toHaveLength(3);
+
+    for (const row of dbRows.rows) {
+        expect(row.status).toBe("in_flight");
+    }
+});
+
+    it("concurrent workers claiming different deliveries", async() => {
+            // Creating an endpoint
+            const endpoint = await request(app)
+                .post("/endpoints")
+                .send({
+                    url: "http://localhost:4000/webhook"
+                });
+
+            expect(endpoint.status).toBe(201);
+
+            // Creating two events
+            for (let i = 1; i <= 2; i++) {
+                await request(app)
+                    .post("/events")
+                    .send({
+                        type: "user.created",
+                        data: { number: i },
+                        idempotency_key: `multiple-delivery-${i}`
+                    });
+            }
+            const [delivery1, delivery2] = await Promise.all([ //ensures calling both claimDelivery calls simultaneously
+                claimDelivery(),
+                claimDelivery()
+            ]);
+            expect(delivery1).not.toBeNull();
+            expect(delivery2).not.toBeNull();
+               // Verify unique IDs
+            const ids = [
+                delivery1.id,
+                delivery2.id,
+            ];
+
+            expect(new Set(ids).size).toBe(2); 
+                // Verify all three are in_flight
+            const dbRows = await pool.query(
+                `SELECT id, status
+                FROM deliveries
+                WHERE id = ANY($1::int[])`,
+                [ids]
+            );
+
+            expect(dbRows.rows).toHaveLength(2);
+
+            for (const row of dbRows.rows) {
+                expect(row.status).toBe("in_flight");
+            }
+    })
     afterAll(async() => {
         if(receiverServer != null){
             receiverServer.close();
