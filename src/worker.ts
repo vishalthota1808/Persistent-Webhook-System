@@ -2,6 +2,7 @@
 
 import { pool } from "./db/pool.js";
 import { LEASE_SECONDS , REQUEST_TIMEOUT_MS, POLL_INTERVAL_MS} from "./config/index.js";
+import { date } from "zod";
 
 export async function claimDelivery() { //its func is just to claim a delivery not to send a http request..
     
@@ -51,6 +52,10 @@ export async function claimDelivery() { //its func is just to claim a delivery n
 }
 
 export async function processDelivery(delivery : any) {
+    let elapsedTime: any = null;
+    let response: any = null;
+    let errorMessage: any = null;
+    let attemptRecord: any = null;
     try{
 
         const result = await pool.query(
@@ -79,8 +84,10 @@ export async function processDelivery(delivery : any) {
             timestamp: deliveryData.created_at,
             data: deliveryData.payload,
             };
-    
-        const response = await fetch(deliveryData.url, { //POST request to requrired endpoint
+
+        const startTime = Date.now();
+        attemptRecord = await pool.query(`INSERT INTO attempts (delivery_id) VALUES ($1) RETURNING id`, [deliveryData.id])
+        response = await fetch(deliveryData.url, { //POST request to requrired endpoint
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -89,16 +96,22 @@ export async function processDelivery(delivery : any) {
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), //this is for our Request time out
         redirect: "manual",
         });
+        elapsedTime = Date.now() - startTime;
     
         //here above the redirect is one of the response from http with 3xx status code where it responds to redirect the current request to another redirect url. so with redirect = "follow", http automatically sends to new url, this compromises our safety. so redirect manual enables to restrict the followup request to new redirect urls.
-    
+        errorMessage = `HTTP ${response.status}`;
         if (!response.ok) {// status code of 2xx gives ok and rest 3xx, 4xx, 5xx are failed
-        throw new Error(`Webhook request failed with status ${response.status}`);
+            await pool.query(`UPDATE attempts SET duration_ms = $1,  response_status = $2, error = $3 WHERE id = $4`, [elapsedTime, response.status, errorMessage, attemptRecord.rows[0].id])
+            // await pool.query(`UPDATE deliveries SET last_error = $1, status = $2, locked_until = $3, next_attempt_at = now() + interval '5 seconds' WHERE id = $4`, [errorMessage, 'pending', null, deliveryData.delivery_id])
+            throw new Error(`Webhook request failed with status ${response.status}`);
         }
+        await pool.query(`UPDATE attempts SET duration_ms = $1,  response_status = $2, error = $3 WHERE id = $4`, [elapsedTime, response.status, null, attemptRecord.rows[0].id])
+        // await pool.query(`UPDATE deliveries SET last_error = $1, status = $2, locked_until = $3, next_attempt_at = $4 WHERE id = $5`, [null, 'delivered', null, null, deliveryData.delivery_id])
         await markDelivered(delivery.id)
         console.log("Webhook delivered successfully:", delivery.id);
     }
     catch(err){
+        await pool.query(`UPDATE attempts SET duration_ms = $1,  response_status = $2, error = $3 WHERE id = $4`, [elapsedTime, (response as any).status, errorMessage, (attemptRecord as any).rows[0].id])
         await markFailed(delivery.id)
     }
 }

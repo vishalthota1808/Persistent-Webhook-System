@@ -266,6 +266,7 @@ describe("worker delivery" ,  () => {
                 expect(row.status).toBe("in_flight");
             }
     })
+    
     afterAll(async() => {
         if(receiverServer != null){
             receiverServer.close();

@@ -1,0 +1,1 @@
+ALTER TABLE deliveries ADD COLUMN last_error TEXT;
