@@ -5,6 +5,7 @@ export const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS);
 export const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS);
 export const RETRY_BASE_MS = Number(process.env.RETRY_BASE_MS);
 export const RETRY_CAP_MS = Number(process.env.RETRY_CAP_MS);
+export const MAX_ATTEMPTS = Number(process.env.MAX_ATTEMPTS ?? 8);
 
 
 const configValues = {
@@ -12,7 +13,8 @@ const configValues = {
   REQUEST_TIMEOUT_MS,
   POLL_INTERVAL_MS,
   RETRY_BASE_MS,
-  RETRY_CAP_MS
+  RETRY_CAP_MS,
+  MAX_ATTEMPTS
 };
 
 for (const [key, value] of Object.entries(configValues)) {

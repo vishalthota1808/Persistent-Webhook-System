@@ -42,7 +42,7 @@ describe("worker delivery" ,  () => {
         console.log("Claimed event:", claimedDelivery.event_id);
         expect(claimedDelivery).not.toBeNull()
         if(claimedDelivery){
-            await processDelivery(claimedDelivery, claimedDelivery.attempt_count);
+            await processDelivery(claimedDelivery);
             expect(receiverState.payload).not.toBeNull();
             expect((receiverState.payload as any).type).toBe("user.created")
             expect((receiverState.payload as any).data).toEqual({})
@@ -94,7 +94,7 @@ describe("worker delivery" ,  () => {
     // at or after it, instead of comparing against Date.now() afterwards.
     const processStartedAt = Date.now();
 
-    await processDelivery(claimedDelivery,claimedDelivery.attempt_count);
+    await processDelivery(claimedDelivery);
 
     // Receiver actually received the webhook.
     expect(receiverState.payload).not.toBeNull();
@@ -141,7 +141,7 @@ describe("worker delivery" ,  () => {
             console.log("Claimed endpoint:", claimedDelivery.endpoint_id);
             console.log("Claimed event:", claimedDelivery.event_id);
 
-            await processDelivery(claimedDelivery, claimedDelivery.attempt_count);
+            await processDelivery(claimedDelivery);
             const dbRow = await pool.query(
                 `SELECT status, next_attempt_at, locked_until
                 FROM deliveries
@@ -305,7 +305,7 @@ describe("worker delivery" ,  () => {
     // at or after it, instead of comparing against Date.now() afterwards.
     const processStartedAt = Date.now();
 
-    await processDelivery(claimedDelivery, claimedDelivery.attempt_count);
+    await processDelivery(claimedDelivery);
 
     // Verify attempt history
     const attemptResult = await pool.query(

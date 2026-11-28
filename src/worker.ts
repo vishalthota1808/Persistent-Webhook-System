@@ -1,7 +1,7 @@
 //Here, a PostgreSQL database already has a row-lock mechanism in which one particular operation locks a particular row and can only release the lock after that particular transaction finishes. So, here in our project, if a worker A starts a transaction on a particular row, it locks the row and continues with its transaction. Whereas, at the same time, if worker B also tries to use the same particular row, then it waits for the worker A to complete its transaction. so, we use here SKIP LOCKED keyword, which enables worker B to directly skip it and move to other row.
 
 import { pool } from "./db/pool.js";
-import { LEASE_SECONDS , REQUEST_TIMEOUT_MS, POLL_INTERVAL_MS, RETRY_BASE_MS, RETRY_CAP_MS} from "./config/index.js";
+import { LEASE_SECONDS , REQUEST_TIMEOUT_MS, POLL_INTERVAL_MS, RETRY_BASE_MS, RETRY_CAP_MS, MAX_ATTEMPTS} from "./config/index.js";
 import { date } from "zod";
 
 export async function claimDelivery() { //its func is just to claim a delivery not to send a http request..
@@ -22,6 +22,7 @@ export async function claimDelivery() { //its func is just to claim a delivery n
       ); 
     
       if (result.rows.length === 0) { //no pending deliveries
+        console.log("no deliveries found..")
         await client.query("COMMIT");
         return null;
       }
@@ -65,7 +66,7 @@ export function computeRetryDelayMs( //this is a function to calculate the expon
     return Math.floor(rng() * ceiling); //here rng is just a random value to provide jitter instead of direct exponential delays.
 }
 
-export async function processDelivery(delivery : any, attempt_count: number) {
+export async function processDelivery(delivery : any) {
     let elapsedTime: any = null;
     let response: any = null;
     let errorMessage: any = null;
@@ -115,9 +116,17 @@ export async function processDelivery(delivery : any, attempt_count: number) {
         //here above the redirect is one of the response from http with 3xx status code where it responds to redirect the current request to another redirect url. so with redirect = "follow", http automatically sends to new url, this compromises our safety. so redirect manual enables to restrict the followup request to new redirect urls.
         errorMessage = `HTTP ${response.status}`;
         if (!response.ok) {// status code of 2xx gives ok and rest 3xx, 4xx, 5xx are failed
-            await pool.query(`UPDATE attempts SET duration_ms = $1,  response_status = $2, error = $3 WHERE id = $4`, [elapsedTime, response.status, errorMessage, attemptRecord.rows[0].id])
+            if(deliveryData.attempt_count>= MAX_ATTEMPTS){
+                console.log("MAX ATTEMPTS REACHED", deliveryData.id);
+                await pool.query(`UPDATE deliveries SET status = 'failed', locked_until = NULL, last_error = $2 WHERE id = $1 AND status = 'in_flight'`, [deliveryData.id, errorMessage])
+                await pool.query(`UPDATE attempts SET duration_ms = $1,  response_status = $2, error = $3 WHERE id = $4`, [elapsedTime, response.status, errorMessage, attemptRecord.rows[0].id])
+                return;
+            }
+            else{
+                await pool.query(`UPDATE attempts SET duration_ms = $1,  response_status = $2, error = $3 WHERE id = $4`, [elapsedTime, response.status, errorMessage, attemptRecord.rows[0].id])
+                throw new Error(`Webhook request failed with status ${response.status}`);
+            }
             // await pool.query(`UPDATE deliveries SET last_error = $1, status = $2, locked_until = $3, next_attempt_at = now() + interval '5 seconds' WHERE id = $4`, [errorMessage, 'pending', null, deliveryData.delivery_id])
-            throw new Error(`Webhook request failed with status ${response.status}`);
         }
         await pool.query(`UPDATE attempts SET duration_ms = $1,  response_status = $2, error = $3 WHERE id = $4`, [elapsedTime, response.status, null, attemptRecord.rows[0].id])
         // await pool.query(`UPDATE deliveries SET last_error = $1, status = $2, locked_until = $3, next_attempt_at = $4 WHERE id = $5`, [null, 'delivered', null, null, deliveryData.delivery_id])
@@ -185,12 +194,13 @@ export async function startWorker(signal?: AbortSignal){ //discalimer this signa
         try{
             const delivery = await claimDelivery();
             if(!delivery){ //if no pending delivery
+                console.log("no deliveries at the while loop")
                 await sleep(POLL_INTERVAL_MS); //wait for a certian time.
                 continue;
             }
             console.log(`worker ${process.pid} has claimed the delivery ${delivery.id}`)
             
-            await processDelivery(delivery, delivery.attempt_count);
+            await processDelivery(delivery);
         }
         catch(err){
             console.log("Worker iteration Failed!!")
