@@ -41,7 +41,7 @@ describe("worker delivery" ,  () => {
         console.log("Claimed event:", claimedDelivery.event_id);
         expect(claimedDelivery).not.toBeNull()
         if(claimedDelivery){
-            await processDelivery(claimedDelivery);
+            await processDelivery(claimedDelivery, claimedDelivery.attempt_count);
             expect(receiverState.payload).not.toBeNull();
             expect((receiverState.payload as any).type).toBe("user.created")
             expect((receiverState.payload as any).data).toEqual({})
@@ -88,7 +88,7 @@ describe("worker delivery" ,  () => {
 
     expect(claimedDelivery).not.toBeNull();
 
-    await processDelivery(claimedDelivery);
+    await processDelivery(claimedDelivery,claimedDelivery.attempt_count);
 
     // Receiver actually received the webhook.
     expect(receiverState.payload).not.toBeNull();
@@ -135,7 +135,7 @@ describe("worker delivery" ,  () => {
             console.log("Claimed endpoint:", claimedDelivery.endpoint_id);
             console.log("Claimed event:", claimedDelivery.event_id);
 
-            await processDelivery(claimedDelivery);
+            await processDelivery(claimedDelivery, claimedDelivery.attempt_count);
             const dbRow = await pool.query(
                 `SELECT status, next_attempt_at, locked_until
                 FROM deliveries
@@ -294,7 +294,7 @@ describe("worker delivery" ,  () => {
 
     expect(claimedDelivery).not.toBeNull();
 
-    await processDelivery(claimedDelivery);
+    await processDelivery(claimedDelivery, claimedDelivery.attempt_count);
 
     // Verify attempt history
     const attemptResult = await pool.query(

@@ -11,6 +11,7 @@ describe("worker concurency test",  () => {
     let receiverServer: ReturnType<typeof receiver.listen> | null = null;
     beforeAll(() => {
             receiverState.responseStatus = 200;
+            receiverState.concurencyDelay = 50;
             receiverServer = receiver.listen(4000, () => { //start our separate receiver server before all
             console.log("Test receiver listening on port 4000");
             });

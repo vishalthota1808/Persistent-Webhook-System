@@ -8,7 +8,8 @@ receiver.use(express.json());
 export const receiverState = {
     payload: null as any,
     responseStatus: 200,
-    delayMs: 0
+    delayMs: 0,
+    concurencyDelay : 0
 };
 export const count = {
   requestCount: 0
@@ -17,7 +18,7 @@ receiver.post("/webhook", async (req, res) => {
   count.requestCount = count.requestCount+1;
   receiverState.payload = req.body;
   await new Promise(resolve => setTimeout(resolve, receiverState.delayMs)); // this isfor testing REQUEST_TIMEOUTs.
-  await new Promise(resolve => setTimeout(resolve, 50)); //this is for our concurrent 1000 deliveries 3 workers demo
+  await new Promise(resolve => setTimeout(resolve, receiverState.concurencyDelay)); //this is for our concurrent 1000 deliveries 3 workers demo
   console.log("Received webhook!");
   console.log("Headers:", req.headers);
   console.log("Body:", req.body);
