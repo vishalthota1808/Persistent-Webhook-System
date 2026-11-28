@@ -176,16 +176,19 @@ async function markFailed(deliveryId : string, errorMsg : string, delayMs: numbe
 async function sleep(ms : number) {
     return new Promise(resolve => setTimeout(resolve, ms)) //here we create a new promise which has a function setTimeout which is programmed to run a function[resolve] after certain ms. and resolve is a function which marks the promise as completed.
 }
-export async function startWorker(){
+export async function startWorker(signal?: AbortSignal){ //discalimer this signal is only for one particular test. dont mind.
     while(true){
         // console.log("started..")
+        if(signal?.aborted){ //this is to make sure to stop the infinitely running worker for a particualr test.
+            break;
+        }
         try{
             const delivery = await claimDelivery();
-            console.log(`worker ${process.pid} has claimed the delivery ${delivery.id}`)
             if(!delivery){ //if no pending delivery
                 await sleep(POLL_INTERVAL_MS); //wait for a certian time.
                 continue;
             }
+            console.log(`worker ${process.pid} has claimed the delivery ${delivery.id}`)
             
             await processDelivery(delivery, delivery.attempt_count);
         }

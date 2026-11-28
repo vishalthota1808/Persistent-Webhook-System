@@ -7,6 +7,7 @@ import { receiverState } from "./test_receiver.ts";
 import { pool } from "../src/db/pool.ts";
 // import { receiverConfig } from "./test_receiver.ts";
 import { REQUEST_TIMEOUT_MS } from "../src/config/index.ts";
+import { startWorker } from "../src/worker.ts";
 
 describe("worker delivery" ,  () => {
     let receiverServer:any = null;
@@ -88,6 +89,11 @@ describe("worker delivery" ,  () => {
 
     expect(claimedDelivery).not.toBeNull();
 
+    // Retry delay uses full jitter, so it can legitimately be ~0ms.
+    // Capture the time before processing and assert the retry is scheduled
+    // at or after it, instead of comparing against Date.now() afterwards.
+    const processStartedAt = Date.now();
+
     await processDelivery(claimedDelivery,claimedDelivery.attempt_count);
 
     // Receiver actually received the webhook.
@@ -106,7 +112,7 @@ describe("worker delivery" ,  () => {
     expect(dbRow.rows[0].locked_until).toBeNull();
 
     expect(new Date(dbRow.rows[0].next_attempt_at).getTime())
-        .toBeGreaterThan(Date.now());
+        .toBeGreaterThanOrEqual(processStartedAt);
 });
 
     it("testing receiver timeout", async() => {
@@ -294,6 +300,11 @@ describe("worker delivery" ,  () => {
 
     expect(claimedDelivery).not.toBeNull();
 
+    // Retry delay uses full jitter, so it can legitimately be ~0ms.
+    // Capture the time before processing and assert the retry is scheduled
+    // at or after it, instead of comparing against Date.now() afterwards.
+    const processStartedAt = Date.now();
+
     await processDelivery(claimedDelivery, claimedDelivery.attempt_count);
 
     // Verify attempt history
@@ -330,9 +341,86 @@ describe("worker delivery" ,  () => {
     expect(delivery.last_error).toContain("500");
     expect(delivery.locked_until).toBeNull();
     expect(new Date(delivery.next_attempt_at).getTime())
-        .toBeGreaterThan(Date.now());
+        .toBeGreaterThanOrEqual(processStartedAt);
 });
-    
+    it("always failing server", async () => {
+        const endpoint = await request(app)
+        .post("/endpoints")
+        .send({
+            url: "http://localhost:4000/fail"
+        });
+
+        expect(endpoint.status).toBe(201);
+
+        const event = await request(app)
+        .post("/events")
+        .send({
+            type: "user.created",
+            data: { name: "test" },
+            idempotency_key: "failure-test"
+        });
+
+        expect(event.status).toBe(201);
+
+        //fetching the delivery id
+        const deliveryResult = await pool.query(
+            `SELECT id FROM deliveries
+            WHERE event_id = (
+                SELECT id FROM events
+                WHERE idempotency_key = $1
+            )`,
+            ["failure-test"]
+        );
+        
+        const deliveryId = deliveryResult.rows[0].id;
+
+//very imp point: AbortController is an inbuilt js class used to stop the asynchrnous processt has two important parts:
+//1. AbortController – The controller that sends the stop signal.
+//2. AbortSignal – The signal that the running operation receives and listens to.
+
+        const controller = new AbortController();
+
+        // Give the worker the signal
+        const workerPromise = startWorker(controller.signal);
+        try{
+            let attemptsCount = 0;
+
+            const deadline = Date.now() + 15000;
+
+            while (attemptsCount < 4 && Date.now() < deadline) { //we are actually polling the db every 50ms until 4 attempts recorded.
+                const result = await pool.query(
+                    `SELECT COUNT(*) 
+                    FROM attempts 
+                    WHERE delivery_id = $1`,
+                    [deliveryId]
+                );
+
+                attemptsCount = Number(result.rows[0].count);
+
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+
+            expect(attemptsCount).toBeGreaterThanOrEqual(4);
+
+            //we are now verifying the actual gaps between the attemps using the started_at records..
+            const result = await pool.query( 
+                `SELECT started_at FROM attempts ORDER BY started_at ASC`
+            );
+
+            for (let i = 1; i < result.rows.length; i++) {
+                const gap =
+                    new Date(result.rows[i].started_at).getTime() -
+                    new Date(result.rows[i - 1].started_at).getTime();
+
+                console.log(`Gap ${i}: ${gap} ms`);
+            }
+        }
+        finally{
+            // Tell the worker to stop
+            controller.abort();
+            await workerPromise;
+        }
+    })
     afterAll(async() => {
         if(receiverServer != null){
             receiverServer.close();
